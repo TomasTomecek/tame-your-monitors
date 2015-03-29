@@ -1,0 +1,53 @@
+#!/usr/bin/python -tt
+
+import json
+import os
+import md5
+import glob
+import subprocess
+
+DEFAULT_PATH = os.path.abspath(os.path.expanduser("~/.rmm"))
+
+def checksum_edid():
+    m = md5.new()
+    for edid_path in glob.glob("sys/class/drm/*/edid"):
+        with open(edid_path, 'r') as fp:
+            edid = fp.read()
+        m.update(edid)
+    return m.hexdigest()
+
+def get_monitor_layout():
+    return subprocess.check_output(["unxrandr"]).strip()
+
+def save_current():
+    checksum = checksum_edid()
+    try:
+        with open(DEFAULT_PATH, "r") as fp:
+            j = json.load(fp)
+    except IOError as ex:
+        if ex.errno == 2:
+            j = {}
+        else:
+            raise
+    if checksum not in j:
+        j[checksum] = get_monitor_layout()
+    with open(DEFAULT_PATH, "w") as fp:
+        json.dump(j, fp)
+
+
+def get_current():
+    checksum = checksum_edid()
+    try:
+        with open(DEFAULT_PATH, "r") as fp:
+            j = json.load(fp)
+    except IOError as ex:
+        if ex.errno == 2:
+            j = {}
+        else:
+            raise
+    cmd = j[checksum]
+    subprocess.check_call(cmd.split())
+
+with open("/tmp/tym.log", "w+") as fp:
+    fp.writeline(str(os.environ) + '\n')
+get_current()
