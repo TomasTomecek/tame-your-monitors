@@ -1,53 +1,220 @@
 #!/usr/bin/python -tt
 
+import sys
 import json
 import os
 import md5
 import glob
 import subprocess
+import logging
+import argparse
 
-DEFAULT_PATH = os.path.abspath(os.path.expanduser("~/.rmm"))
 
-def checksum_edid():
-    m = md5.new()
-    for edid_path in glob.glob("sys/class/drm/*/edid"):
-        with open(edid_path, 'r') as fp:
-            edid = fp.read()
-        m.update(edid)
-    return m.hexdigest()
+DEFAULT_PATH = os.path.abspath(os.path.expanduser("~/.tym"))
 
-def get_monitor_layout():
-    return subprocess.check_output(["unxrandr"]).strip()
 
-def save_current():
-    checksum = checksum_edid()
-    try:
-        with open(DEFAULT_PATH, "r") as fp:
-            j = json.load(fp)
-    except IOError as ex:
-        if ex.errno == 2:
-            j = {}
-        else:
+def set_logging(level=logging.INFO):
+    logging.basicConfig(filename='/tmp/tym.log', level=level)
+
+
+class MonitorManagement(object):
+    def __init__(self):
+        self._connected_checksum = None
+        self._edid_checksum = None
+
+    @property
+    def connected_checksum(self):
+        if self._connected_checksum is None:
+            self._compute_checksums()
+        return self._connected_checksum
+
+    @property
+    def edid_checksum(self):
+        if self._edid_checksum is None:
+            self._compute_checksums()
+        return self._edid_checksum
+
+    @staticmethod
+    def get_current_monitors():
+        connected_monitors = []
+        for edid_path in glob.glob("/sys/class/drm/*/edid"):
+            data = {}
+            dir_path = os.path.dirname(edid_path)
+            monitor = os.path.basename(dir_path)
+            status_path = os.path.join(dir_path, "status")
+            with open(status_path, 'r') as fp:
+                status = fp.read().strip()
+            data['status'] = status
+            data['monitor'] = monitor
+            logging.debug("%s = %s", monitor, status)
+            if status == "connected":
+                with open(edid_path, 'r') as fp:
+                    edid = fp.read()
+                logging.debug("edid = '%s'", edid)
+                data['edid'] = edid
+            connected_monitors.append(data)
+        return connected_monitors
+
+    def _compute_checksums(self, connected_monitors=None):
+        """
+        edid_cs:
+            <monitor><status><edid>
+
+        connected_cs:
+            <monitor><status>
+        """
+        connected_monitors = connected_monitors or self.get_current_monitors()
+        edid_cs = md5.new()
+        connected_cs = md5.new()
+        for monitor_data in connected_monitors:
+            status = monitor_data['status']
+            monitor = monitor_data['monitor']
+            edid = monitor_data.get('edid', None)
+
+            connected_cs.update(monitor)
+            connected_cs.update(status)
+            edid_cs.update(monitor)
+            edid_cs.update(status)
+            if edid is not None:
+                edid_cs.update(edid)
+        self._edid_checksum = edid_cs.hexdigest()
+        self._connected_checksum = connected_cs.hexdigest()
+
+    @staticmethod
+    def get_current_monitor_layout():
+        return subprocess.check_output(["unxrandr"]).strip()
+
+
+class App(object):
+    def __init__(self):
+        self.mm = MonitorManagement()
+        self.j = None
+
+    @property
+    def connected_checksum(self):
+        return self.mm.connected_checksum
+
+    @property
+    def edid_checksum(self):
+        return self.mm.edid_checksum
+
+    def get_config(self, cached=True, ignore_exc=False):
+        if self.j is None or not cached:
+            try:
+                with open(DEFAULT_PATH, "r") as fp:
+                    self.j = json.load(fp)
+            except ValueError:
+                logging.error("malformed configuration file")
+                raise
+            except IOError as ex:
+                self.j = []
+                if ex.errno != 2:
+                    logging.error("exc while getting config: %s", repr(ex))
+                    if not ignore_exc:
+                        raise
+        return self.j
+
+    def find_current_layout(self, cached=True, ignore_exc=False):
+        for conf in self.get_config(cached=cached, ignore_exc=ignore_exc):
+            c_edid = conf.get("edid_checksum", None)
+            if c_edid == self.edid_checksum:
+                return conf
+            c_connected = conf.get("connected_checksum", None)
+            if c_connected == self.connected_checksum:
+                # update edid, just in case
+                # FIXME: edid checksum, the more accurate one could be in the back
+                conf["edid_checksum"] = self.edid_checksum
+                return conf
+        return {}
+
+    def save_current(self):
+        """
+        [{
+            "edid_checksum": "...",
+            "connected_checksum": "...",
+            "monitor_layout": "xrandr --..."
+        }]
+        """
+        conf = self.find_current_layout()
+        if not conf:
+            self.j.append({
+                "edid_checksum": self.edid_checksum,
+                "connected_checksum": self.connected_checksum,
+                "monitor_layout": self.mm.get_current_monitor_layout()
+            })
+        with open(DEFAULT_PATH, "w") as fp:
+            json.dump(self.j, fp)
+
+    def apply(self):
+        # logging.debug(os.environ)
+
+        conf = self.find_current_layout(ignore_exc=True)
+
+        cmd = conf.get("monitor_layout", "xrandr --auto")
+
+        logging.debug("cmd = %s", cmd)
+        cmd_list = cmd.split()
+        try:
+            subprocess.check_call(
+                cmd_list,
+                env={
+                    "DISPLAY": ":0",
+                    "XAUTHORITY": os.path.abspath(os.path.expanduser("~/.Xauthority"))
+                }
+            )
+        except subprocess.CalledProcessError as ex:
+            logging.error("[%s] cmd = %s, output = '%s'", ex.returncode, ex.cmd, ex.output)
             raise
-    if checksum not in j:
-        j[checksum] = get_monitor_layout()
-    with open(DEFAULT_PATH, "w") as fp:
-        json.dump(j, fp)
 
 
-def get_current():
-    checksum = checksum_edid()
+def apply_layout(args):
+    a = App()
+    a.apply()
+
+
+def save_layout(args):
+    a = App()
+    a.save_current()
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Tame your monitors!",
+    )
+    parser.add_argument("-v", "--verbose", action="store_true")
+    subparsers = parser.add_subparsers(help='commands')
+    save_parser = subparsers.add_parser('save', help='save current layout')
+    save_parser.set_defaults(func=save_layout)
+    apply_parser = subparsers.add_parser('apply', help='apply from configuration of current layout')
+    apply_parser.set_defaults(func=apply_layout)
+    # install_parser = subparsers.add_parser('install', help='install udev rule and pm-utils script')
+
+    args = parser.parse_args()
+
+    if args.verbose:
+        set_logging(level=logging.DEBUG)
+    else:
+        set_logging(level=logging.INFO)
+
     try:
-        with open(DEFAULT_PATH, "r") as fp:
-            j = json.load(fp)
-    except IOError as ex:
-        if ex.errno == 2:
-            j = {}
-        else:
+        args.func(args)
+    except AttributeError as ex:
+        if hasattr(args, 'func'):
+            logging.error("Exception caught: %s", repr(ex))
             raise
-    cmd = j[checksum]
-    subprocess.check_call(cmd.split())
+        else:
+            parser.print_help()
+    except KeyboardInterrupt:
+        return 2
+    except Exception as ex:
+        if args.verbose:
+            raise
+        else:
+            logging.error("Exception caught: %s", repr(ex))
+            return 1
+    return 0
 
-with open("/tmp/tym.log", "w+") as fp:
-    fp.writeline(str(os.environ) + '\n')
-get_current()
+
+if __name__ == '__main__':
+    sys.exit(main())
+
