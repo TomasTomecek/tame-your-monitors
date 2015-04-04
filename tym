@@ -8,6 +8,7 @@ import glob
 import subprocess
 import logging
 import argparse
+import struct
 
 
 DEFAULT_PATH = os.path.abspath(os.path.expanduser("~/.tym"))
@@ -50,6 +51,10 @@ class MonitorManagement(object):
             if status == "connected":
                 with open(edid_path, 'r') as fp:
                     edid = fp.read()
+                edid = struct.unpack("B" * len(edid), edid)
+                edid = ''.join([str(x) for x in edid])
+                # endianess is screwed probably, but
+                # who cares if don't parse edid
                 logging.debug("edid = '%s'", edid)
                 data['edid'] = edid
             connected_monitors.append(data)
@@ -146,7 +151,7 @@ class App(object):
             json.dump(self.j, fp)
 
     def apply(self):
-        # logging.debug(os.environ)
+        logging.debug("env = %s", os.environ)
 
         conf = self.find_current_layout(ignore_exc=True)
 
@@ -207,10 +212,10 @@ def main():
     except KeyboardInterrupt:
         return 2
     except Exception as ex:
+        logging.error("Exception caught: %s", repr(ex))
         if args.verbose:
             raise
         else:
-            logging.error("Exception caught: %s", repr(ex))
             return 1
     return 0
 
