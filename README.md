@@ -6,6 +6,15 @@
  * unplug it
  * resume from sleep or hibernation
 
+So no more black screens, fiddling with `xrandr` or manually *clicking out* the layout every time you take your laptop with you.
+
+## Dependencies
+
+ * [python](https://www.python.org/)
+ * [pm-utils](http://pm-utils.freedesktop.org/wiki/) — if you want to apply layout when resuming
+ * [udev](http://www.freedesktop.org/software/systemd/man/udev.html) — if you want to apply layout when (un)plugging
+ * [arandr](http://christian.amsuess.com/tools/arandr/) — `unxrandr` command
+
 ## Usage
 
 First you need to save your current monitor layout:
