@@ -35,10 +35,10 @@ SUBSYSTEM=="drm", ACTION=="change", RUN+="tym apply"
 
 If you run it as a different user, you need to switch user before running `tym`:
 ```
-SUBSYSTEM=="drm", ACTION=="change", RUN+="/usr/bin/su -c 'tym -v apply' ${INSERT_USERNAME_HERE}"
+SUBSYSTEM=="drm", ACTION=="change", RUN+="/usr/bin/su -c 'tym apply' ${INSERT_USERNAME_HERE}"
 ```
 
-You should the rule to `/etc/udev/rules.d` and name it e.g. `99-tym.rules`.
+You should put the rule to `/etc/udev/rules.d` and name it e.g. `99-tym.rules`.
 
 ### pm-utils script
 
@@ -54,13 +54,18 @@ case "$1" in
 esac
 ```
 
+Same case as with the udev rule: pick correct user:
+
+ * root: `/usr/bin/su -c 'tym apply' ${INSERT_USERNAME_HERE}`
+ * user: `tym apply`
+
 This should be in `/etc/pm/sleep.d/` with a name, let's say `40tym`.
 
 
 ## Resources
 
-[auto monitor setup](https://blog.sleeplessbeastie.eu/2013/01/07/how-to-automatically-set-up-external-monitor/)  
-[writing udev rules](http://www.reactivated.net/writing_udev_rules.html)
+[How to automatically set up external monitor](https://blog.sleeplessbeastie.eu/2013/01/07/how-to-automatically-set-up-external-monitor/)  
+[Writing udev rules](http://www.reactivated.net/writing_udev_rules.html)
 
 ## Similar projects
 
