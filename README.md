@@ -61,6 +61,24 @@ Same case as with the udev rule: pick correct user:
 
 This should be in `/etc/pm/sleep.d/` with a name, let's say `40tym`.
 
+## Debugging
+
+Logs are stored in `/tmp/tym.log`. `--verbose` flag can help you.
+
+You can test if your udev rule is being loaded with this command:
+```
+$ udevadm test --action=change /devices/pci0000:00/0000:00:02.0/drm/card0
+```
+
+Showing udev events is quite simple:
+```
+$ udevadm monitor
+```
+
+Getting more info about monitors from udev:
+```
+$ udevadm info [-a] -p /sys/class/drm/card*
+```
 
 ## Resources
 
